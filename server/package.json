@@ -1,0 +1,15 @@
+{
+  "name": "auto-wechat-post-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "watch:projects": "node scripts/watch-projects.js",
+    "publish:package": "node scripts/publish-wechat-draft.js",
+    "init:project": "node scripts/init-project.js",
+    "check": "node --check scripts/watch-projects.js && node --check scripts/publish-wechat-draft.js && node --check scripts/init-project.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,3 @@
+display_name: Auto WeChat Post
+short_description: Generate and publish configurable WeChat account articles
+default_prompt: Use Auto WeChat Post to generate today's WeChat articles for this project and upload them to the configured server.

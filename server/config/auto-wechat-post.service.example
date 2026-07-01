@@ -1,0 +1,15 @@
+[Unit]
+Description=Auto WeChat Post multi-project watcher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/auto-wechat-post-server
+ExecStart=/usr/bin/npm run watch:projects
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

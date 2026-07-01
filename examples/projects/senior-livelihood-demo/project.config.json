@@ -1,0 +1,12 @@
+{
+  "project_id": "senior-livelihood-demo",
+  "account_name": "Senior Life Guide Demo",
+  "platforms": ["wechat"],
+  "daily_article_count": 3,
+  "output_dir": "outputs/wechat-content",
+  "server": {
+    "host": "root@example.com",
+    "ssh_key": "~/.ssh/wechat-server.pem",
+    "remote_root": "/opt/auto-wechat-post-server"
+  }
+}
