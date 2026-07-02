@@ -76,6 +76,23 @@ export async function createDraft({ accessToken, title, author, digest, content,
   return data;
 }
 
+export async function deleteDraft({ accessToken, mediaId }) {
+  const url = new URL(`${API_BASE}/draft/delete`);
+  url.searchParams.set("access_token", accessToken);
+
+  const response = await requestJson(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ media_id: mediaId })
+  });
+
+  const data = response.data;
+  if (response.statusCode < 200 || response.statusCode >= 300 || data.errcode) {
+    throw new Error(`删除草稿失败：${data.errcode ?? response.statusCode} ${data.errmsg ?? response.statusMessage}`);
+  }
+  return data;
+}
+
 export async function uploadPermanentMaterial({ accessToken, filePath, type = "thumb" }) {
   const resolvedPath = path.resolve(filePath);
   if (!fs.existsSync(resolvedPath)) throw new Error(`找不到素材文件：${resolvedPath}`);

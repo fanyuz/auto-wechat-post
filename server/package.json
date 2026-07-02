@@ -6,8 +6,9 @@
   "scripts": {
     "watch:projects": "node scripts/watch-projects.js",
     "publish:package": "node scripts/publish-wechat-draft.js",
+    "delete:draft": "node scripts/delete-wechat-draft.js",
     "init:project": "node scripts/init-project.js",
-    "check": "node --check scripts/watch-projects.js && node --check scripts/publish-wechat-draft.js && node --check scripts/init-project.js"
+    "check": "node --check scripts/watch-projects.js && node --check scripts/publish-wechat-draft.js && node --check scripts/delete-wechat-draft.js && node --check scripts/init-project.js"
   },
   "engines": {
     "node": ">=20"

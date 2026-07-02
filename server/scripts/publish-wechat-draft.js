@@ -28,48 +28,55 @@ ensureProjectDirs(project);
 
 const fingerprint = createContentFingerprint(articlePackage);
 const fingerprintPath = path.join(project.dataDir, "draft-publish-fingerprints.json");
-const fingerprintState = loadJson(fingerprintPath, {});
-
-if (fingerprintState[fingerprint] && !forcePublish) {
-  const previous = fingerprintState[fingerprint];
-  console.log("重复内容，已跳过草稿创建");
-  console.log(`已有media_id：${previous.media_id || ""}`);
-  console.log(`首次来源文章包：${previous.package || ""}`);
+const publishLock = acquirePublishLock(project, fingerprint);
+if (!publishLock && !forcePublish) {
+  console.log("相同内容正在发布，已跳过草稿创建");
   process.exit(0);
 }
 
 try {
-  const token = await getAccessToken(project.env);
-  const thumb = await prepareThumbMediaId(articlePackage, token.access_token, packagePath, project.env);
-  const preparedContent = await prepareContentHtml(articlePackage, token.access_token, packagePath);
-  const draft = await createDraft({
-    accessToken: token.access_token,
-    title: articlePackage.title,
-    author: articlePackage.author || articlePackage.account_name,
-    digest: articlePackage.digest || "",
-    content: preparedContent.contentHtml,
-    thumbMediaId: thumb.mediaId
-  });
+  const fingerprintState = loadJson(fingerprintPath, {});
+  if (fingerprintState[fingerprint] && !forcePublish) {
+    const previous = fingerprintState[fingerprint];
+    console.log("重复内容，已跳过草稿创建");
+    console.log(`已有media_id：${previous.media_id || ""}`);
+    console.log(`首次来源文章包：${previous.package || ""}`);
+    process.exitCode = 0;
+  } else {
+    const token = await getAccessToken(project.env);
+    const thumb = await prepareThumbMediaId(articlePackage, token.access_token, packagePath, project.env);
+    const preparedContent = await prepareContentHtml(articlePackage, token.access_token, packagePath);
+    const draft = await createDraft({
+      accessToken: token.access_token,
+      title: articlePackage.title,
+      author: articlePackage.author || articlePackage.account_name,
+      digest: articlePackage.digest || "",
+      content: preparedContent.contentHtml,
+      thumbMediaId: thumb.mediaId
+    });
 
-  fingerprintState[fingerprint] = {
-    package: path.relative(process.cwd(), packagePath).replaceAll(path.sep, "/"),
-    title: articlePackage.title,
-    media_id: draft.media_id,
-    updated_at: new Date().toISOString()
-  };
-  saveJson(fingerprintPath, fingerprintState);
+    fingerprintState[fingerprint] = {
+      package: path.relative(process.cwd(), packagePath).replaceAll(path.sep, "/"),
+      title: articlePackage.title,
+      media_id: draft.media_id,
+      updated_at: new Date().toISOString()
+    };
+    saveJson(fingerprintPath, fingerprintState);
 
-  console.log("草稿创建成功");
-  console.log(`project_id：${articlePackage.project_id}`);
-  console.log(`media_id：${draft.media_id}`);
-  console.log(`来源文章包：${path.relative(process.cwd(), packagePath).replaceAll(path.sep, "/")}`);
-  console.log(`封面素材：${thumb.source}`);
-  if (preparedContent.uploadedImages.length) {
-    console.log(`正文图片已上传并替换：${preparedContent.uploadedImages.length} 张`);
+    console.log("草稿创建成功");
+    console.log(`project_id：${articlePackage.project_id}`);
+    console.log(`media_id：${draft.media_id}`);
+    console.log(`来源文章包：${path.relative(process.cwd(), packagePath).replaceAll(path.sep, "/")}`);
+    console.log(`封面素材：${thumb.source}`);
+    if (preparedContent.uploadedImages.length) {
+      console.log(`正文图片已上传并替换：${preparedContent.uploadedImages.length} 张`);
+    }
   }
 } catch (error) {
   console.error(error.message);
   process.exitCode = 1;
+} finally {
+  if (publishLock) releasePublishLock(publishLock);
 }
 
 function validatePackage(pkg) {
@@ -89,6 +96,30 @@ function validatePackage(pkg) {
   }
 }
 
+function acquirePublishLock(project, fingerprint) {
+  const lockDir = path.join(project.dataDir, "publish-locks");
+  fs.mkdirSync(lockDir, { recursive: true });
+  const lockPath = path.join(lockDir, `${fingerprint}.lock`);
+
+  try {
+    const fd = fs.openSync(lockPath, "wx");
+    fs.writeFileSync(fd, `${process.pid}\n${new Date().toISOString()}\n`, "utf8");
+    return { fd, lockPath };
+  } catch (error) {
+    if (error.code === "EEXIST") return null;
+    throw error;
+  }
+}
+
+function releasePublishLock(lock) {
+  try {
+    fs.closeSync(lock.fd);
+  } catch {}
+  try {
+    fs.unlinkSync(lock.lockPath);
+  } catch {}
+}
+
 async function prepareThumbMediaId(pkg, accessToken, packagePath, env) {
   const cover = findImageByRole(pkg.images, "cover");
   const coverPath = cover?.path ? resolveImagePath(cover.path, packagePath) : null;
@@ -96,7 +127,7 @@ async function prepareThumbMediaId(pkg, accessToken, packagePath, env) {
   if (coverPath) {
     const uploaded = await uploadPermanentMaterial({ accessToken, filePath: coverPath, type: "thumb" });
     if (!uploaded.media_id) throw new Error(`上传封面素材失败：${JSON.stringify(uploaded)}`);
-    return { mediaId: uploaded.media_id, source: `本篇封面 ${path.basename(coverPath)}` };
+    return { mediaId: uploaded.media_id, source: `本篇封面 ${portableBasename(coverPath)}` };
   }
 
   return { mediaId: requireEnv(env, "WECHAT_THUMB_MEDIA_ID"), source: "环境变量 WECHAT_THUMB_MEDIA_ID" };
@@ -132,7 +163,7 @@ async function uploadPackageImage({ pkg, accessToken, packagePath, imageReferenc
   const imagePath = resolveImagePath(imageInfo?.path || imageReference, packagePath);
   if (!imagePath) throw new Error(`服务器找不到正文图片：${imageReference}`);
 
-  const imageName = path.basename(imagePath).toLowerCase();
+  const imageName = portableBasename(imagePath).toLowerCase();
   if (uploadedByName.has(imageName)) return uploadedByName.get(imageName);
 
   const uploaded = await uploadArticleImage({ accessToken, filePath: imagePath });
@@ -146,17 +177,17 @@ function findImageByRole(images = [], role) {
 }
 
 function findImageInfo(images = [], placeholder) {
-  const wanted = path.basename(placeholder).trim().toLowerCase();
-  return images.find((image) => image?.path && path.basename(image.path).trim().toLowerCase() === wanted);
+  const wanted = portableBasename(placeholder).trim().toLowerCase();
+  return images.find((image) => image?.path && portableBasename(image.path).trim().toLowerCase() === wanted);
 }
 
 function resolveImagePath(candidate, packagePath) {
   const packageDir = path.dirname(packagePath);
-  const basename = path.basename(candidate);
+  const basename = portableBasename(candidate);
   const candidates = [
-    path.resolve(packageDir, candidate),
+    path.resolve(packageDir, normalizePortablePath(candidate)),
     path.resolve(packageDir, basename),
-    path.resolve(process.cwd(), candidate),
+    path.resolve(process.cwd(), normalizePortablePath(candidate)),
     path.resolve(process.cwd(), basename)
   ];
   return candidates.find((item) => fs.existsSync(item)) || null;
@@ -176,4 +207,12 @@ function escapeHtml(value) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function normalizePortablePath(filePath) {
+  return String(filePath).replaceAll("\\", "/");
+}
+
+function portableBasename(filePath) {
+  return path.posix.basename(normalizePortablePath(filePath));
 }

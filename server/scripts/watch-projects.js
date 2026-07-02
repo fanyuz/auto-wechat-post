@@ -12,6 +12,7 @@ const markExisting = process.argv.includes("--mark-existing");
 
 const seen = new Map();
 const running = new Set();
+let scanning = false;
 
 console.log(`多项目监听启动，轮询间隔：${pollMs}ms`);
 
@@ -23,17 +24,27 @@ if (!once) {
 }
 
 async function scanAllProjects() {
-  for (const projectId of listProjectIds()) {
-    let project;
-    try {
-      project = loadProject(projectId);
-      ensureProjectDirs(project);
-    } catch (error) {
-      console.error(`项目 ${projectId} 配置错误：${error.message}`);
-      continue;
-    }
+  if (scanning) {
+    console.log("上一轮扫描尚未结束，跳过本轮");
+    return;
+  }
 
-    await scanProject(project);
+  scanning = true;
+  try {
+    for (const projectId of listProjectIds()) {
+      let project;
+      try {
+        project = loadProject(projectId);
+        ensureProjectDirs(project);
+      } catch (error) {
+        console.error(`项目 ${projectId} 配置错误：${error.message}`);
+        continue;
+      }
+
+      await scanProject(project);
+    }
+  } finally {
+    scanning = false;
   }
 }
 
@@ -106,9 +117,9 @@ function checkPackageReady(packagePath, project, now, state, statePath) {
   }
 
   for (const imagePath of resolvePackageImages(articlePackage, packagePath)) {
-    if (!fs.existsSync(imagePath)) return { ready: false, reason: `缺少图片 ${path.basename(imagePath)}` };
+    if (!fs.existsSync(imagePath)) return { ready: false, reason: `缺少图片 ${portableBasename(imagePath)}` };
     const imageStable = isStable(imagePath, now);
-    if (!imageStable.ready) return { ready: false, reason: `图片未稳定 ${path.basename(imagePath)}` };
+    if (!imageStable.ready) return { ready: false, reason: `图片未稳定 ${portableBasename(imagePath)}` };
   }
 
   return { ready: true };
@@ -120,11 +131,11 @@ function resolvePackageImages(articlePackage, packagePath) {
     .map((image) => image?.path)
     .filter(Boolean)
     .map((imagePath) => {
-      const basename = path.basename(imagePath);
+      const basename = portableBasename(imagePath);
       const candidates = [
         path.resolve(packageDir, basename),
-        path.resolve(packageDir, imagePath),
-        path.resolve(process.cwd(), imagePath)
+        path.resolve(packageDir, normalizePortablePath(imagePath)),
+        path.resolve(process.cwd(), normalizePortablePath(imagePath))
       ];
       return candidates.find((candidate) => fs.existsSync(candidate)) || path.resolve(packageDir, basename);
     });
@@ -136,7 +147,7 @@ async function publishPackage(project, packagePath, relPath, state, statePath, r
 
   const result = await runNodeScript("scripts/publish-wechat-draft.js", path.relative(process.cwd(), packagePath).replaceAll(path.sep, "/"));
   const mediaId = result.stdout.match(/media_id：(.+)/)?.[1]?.trim() || "";
-  const duplicateSkipped = result.stdout.includes("重复内容，已跳过草稿创建");
+  const duplicateSkipped = result.stdout.includes("已跳过草稿创建");
 
   if (result.code === 0) {
     state[relPath] = {
@@ -201,4 +212,12 @@ function isStable(filePath, now) {
 
 function toProjectRelative(filePath) {
   return path.relative(process.cwd(), filePath).replaceAll(path.sep, "/");
+}
+
+function normalizePortablePath(filePath) {
+  return String(filePath).replaceAll("\\", "/");
+}
+
+function portableBasename(filePath) {
+  return path.posix.basename(normalizePortablePath(filePath));
 }

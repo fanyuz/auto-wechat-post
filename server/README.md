@@ -59,6 +59,12 @@ Manual publish:
 npm run publish:package -- projects/my-account/inbox/2026-06-28/2026-06-28-01-wechat-package.json
 ```
 
+Delete a draft by `media_id`:
+
+```bash
+npm run delete:draft -- my-account MEDIA_ID
+```
+
 ## systemd
 
 Copy `config/auto-wechat-post.service.example` to `/etc/systemd/system/auto-wechat-post.service`, adjust paths if needed, then run:
@@ -78,3 +84,5 @@ projects/{project_id}/data/draft-publish-fingerprints.json
 ```
 
 Identical content is skipped even if the package filename changes.
+
+The watcher also skips overlapping scans, and the publish script uses a per-content lock so a slow WeChat API call cannot create duplicate drafts. Package image paths may come from Windows or Linux; the server normalizes both forms before checking and uploading images.
